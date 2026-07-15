@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Engajamento Eleições — Seguidores Instagram</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+  <style>
+    :root {
+      --bg: #0a0a0b;
+      --surface: #141416;
+      --surface-2: #1c1c1f;
+      --border: rgba(255,255,255,0.06);
+      --text: #f4f4f5;
+      --muted: #71717a;
+      --green: #22c55e;
+      --red: #ef4444;
+      --radius: 16px;
+      --shadow: 0 4px 24px rgba(0,0,0,0.4);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: 'DM Sans', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .bg-glow {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 0;
+      background:
+        radial-gradient(ellipse 80% 50% at 50% -20%, rgba(192,57,43,0.16), transparent),
+        radial-gradient(ellipse 60% 40% at 100% 0%, rgba(26,54,93,0.18), transparent),
+        radial-gradient(ellipse 50% 30% at 0% 100%, rgba(212,160,23,0.1), transparent);
+    }
+
+    .wrap {
+      position: relative;
+      z-index: 1;
+      max-width: 1100px;
+      margin: 0 auto;
+      padding: 1.5rem 1.25rem 3rem;
+    }
+
+    .header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 1rem;
+      margin-bottom: 1.75rem;
+      flex-wrap: wrap;
+    }
+
+    .brand h1 {
+      font-size: 1.4rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+    }
+
+    .brand p {
+      color: var(--muted);
+      font-size: 0.875rem;
+      margin-top: 0.2rem;
+    }
+
+    .live-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.75rem;
+      font-weight: 500;
+      color: var(--green);
+      background: rgba(34,197,94,0.1);
+      border: 1px solid rgba(34,197,94,0.25);
+      padding: 0.35rem 0.75rem;
+      border-radius: 999px;
+    }
+
+    .live-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--green);
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(0.85); }
+    }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(5, 1fr);
+      gap: 0.75rem;
+      margin-bottom: 1.25rem;
+    }
+
+    @media (max-width: 960px) {
+      .cards { grid-template-columns: repeat(3, 1fr); }
+    }
+
+    @media (max-width: 640px) {
+      .cards { grid-template-columns: 1fr 1fr; }
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1rem 1.1rem;
+      transition: border-color 0.2s;
+    }
+
+    .card:hover { border-color: rgba(255,255,255,0.12); }
+
+    .card.charted {
+      box-shadow: inset 3px 0 0 var(--accent, #fff);
+    }
+
+    .card-name {
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: var(--muted);
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+    }
+
+    .swatch {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--accent, #fff);
+      flex-shrink: 0;
+    }
+
+    .card-count {
+      font-size: 1.35rem;
+      font-weight: 700;
+      letter-spacing: -0.02em;
+      margin-top: 0.35rem;
+    }
+
+    .card-delta {
+      font-size: 0.78rem;
+      margin-top: 0.2rem;
+      color: var(--muted);
+    }
+
+    .card-delta.up { color: var(--green); }
+    .card-delta.down { color: var(--red); }
+
+    .card-user {
+      font-size: 0.7rem;
+      color: var(--muted);
+      margin-top: 0.35rem;
+    }
+
+    .panel {
+      background: #f7f7f8;
+      border: 1px solid #e4e4e7;
+      border-radius: var(--radius);
+      padding: 1.35rem 1.25rem 1rem;
+      margin-bottom: 1rem;
+      box-shadow: var(--shadow);
+      color: #18181b;
+    }
+
+    .panel-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 1rem;
+      margin-bottom: 1rem;
+      flex-wrap: wrap;
+    }
+
+    .panel-title {
+      font-size: 1rem;
+      font-weight: 700;
+      color: #18181b;
+    }
+
+    .panel-desc {
+      font-size: 0.8rem;
+      color: #71717a;
+      margin-top: 0.2rem;
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+    }
+
+    .legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: #3f3f46;
+    }
+
+    .legend-item .swatch { width: 10px; height: 10px; }
+
+    .chart-box {
+      position: relative;
+      height: 360px;
+      background: #fff;
+      border: 1px solid #ececee;
+      border-radius: 12px;
+      padding: 0.75rem 0.5rem 0.25rem;
+    }
+
+    .seg {
+      display: flex;
+      background: #ececee;
+      border-radius: 10px;
+      padding: 3px;
+      gap: 2px;
+    }
+
+    .seg button {
+      border: none;
+      background: transparent;
+      color: #71717a;
+      font-family: inherit;
+      font-size: 0.78rem;
+      font-weight: 600;
+      padding: 0.4rem 0.75rem;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .seg button:hover { color: #18181b; }
+
+    .seg button.active {
+      background: #fff;
+      color: #18181b;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+    }
+
+    .empty {
+      display: none;
+      text-align: center;
+      padding: 3rem 1.5rem;
+      color: var(--muted);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      margin-bottom: 1rem;
+    }
+
+    .empty.show { display: block; }
+    .empty h2 { color: var(--text); margin-bottom: 0.4rem; }
+
+    .footer {
+      text-align: center;
+      margin-top: 1.5rem;
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+
+    .footer .time { color: #a1a1aa; }
+  </style>
+</head>
+<body>
+  <div class="bg-glow"></div>
+  <div class="wrap">
+    <header class="header">
+      <div class="brand">
+        <h1>Engajamento Eleições</h1>
+        <p>Histórico de seguidores no Instagram · atualização horária</p>
+      </div>
+      <span class="live-badge" id="liveBadge" style="display:none">
+        <span class="live-dot"></span> Ao vivo
+      </span>
+    </header>
+
+    <div class="empty" id="empty">
+      <h2>Aguardando dados</h2>
+      <p>O bot coleta seguidores a cada hora.<br>Volte em breve!</p>
+    </div>
+
+    <div id="dashboard" style="display:none">
+      <div class="cards" id="cards"></div>
+
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <div class="panel-title">Evolução de seguidores</div>
+            <div class="panel-desc">Renan Santos · Flávio Bolsonaro · Lula</div>
+          </div>
+          <div class="seg" id="rangeBtns">
+            <button data-range="24" class="active">24h</button>
+            <button data-range="72">3d</button>
+            <button data-range="168">7d</button>
+            <button data-range="0">Tudo</button>
+          </div>
+        </div>
+        <div class="legend" id="legend"></div>
+        <div class="chart-box" style="margin-top:0.85rem">
+          <canvas id="followersChart"></canvas>
+        </div>
+      </section>
+    </div>
+
+    <p class="footer" id="updated">Carregando dados...</p>
+  </div>
+
+  <script>
+    const DATA_URL = 'data/followers.csv';
+
+    const PROFILES = [
+      { username: 'renansantosmbl', display_name: 'Renan Santos', chart: true, color: '#c0392b' },
+      { username: 'flaviobolsonaro', display_name: 'Flávio Bolsonaro', chart: true, color: '#1a365d' },
+      { username: 'lulaoficial', display_name: 'Lula', chart: true, color: '#d4a017' },
+      { username: 'ronaldocaiado', display_name: 'Caiado', chart: false, color: '#16a34a' },
+      { username: 'romeuzemaoficial', display_name: 'Zema', chart: false, color: '#7c3aed' },
+    ];
+
+    const CHART_PROFILES = PROFILES.filter((p) => p.chart);
+    Chart.register(ChartDataLabels);
+
+    const fmt = (n) => n.toLocaleString('pt-BR');
+    const fmtDelta = (n) => (n >= 0 ? '+' : '') + fmt(n);
+
+    function compact(n) {
+      if (n >= 1_000_000) {
+        const v = n / 1_000_000;
+        return (v >= 10 ? v.toFixed(1) : v.toFixed(2)).replace(/\.0+$/, '').replace(/(\.\d)0$/, '$1') + 'M';
+      }
+      if (n >= 1_000) {
+        const v = n / 1_000;
+        return (v >= 100 ? Math.round(v) : v.toFixed(1).replace(/\.0$/, '')) + 'K';
+      }
+      return String(n);
+    }
+
+    function parseCsv(text) {
+      const lines = text.trim().split(/\r?\n/).filter(Boolean);
+      if (lines.length < 2) return [];
+      return lines.slice(1).map((line) => {
+        const [timestamp, username, followers, delta] = line.split(',');
+        return {
+          timestamp,
+          username,
+          followers: Number(followers),
+          delta: Number(delta),
+        };
+      }).filter((r) => r.timestamp && r.username && Number.isFinite(r.followers));
+    }
+
+    function latestByUser(rows) {
+      const map = new Map();
+      for (const row of rows) map.set(row.username, row);
+      return map;
+    }
+
+    function seriesFor(rows, username, hours) {
+      let filtered = rows.filter((r) => r.username === username);
+      if (hours > 0) {
+        const since = Date.now() - hours * 3600000;
+        filtered = filtered.filter((r) => new Date(r.timestamp).getTime() >= since);
+      }
+      return filtered.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+    }
+
+    function unionTimestamps(seriesList) {
+      const set = new Set();
+      for (const s of seriesList) for (const p of s) set.add(p.timestamp);
+      return [...set].sort();
+    }
+
+    function formatLabel(iso) {
+      const d = new Date(iso);
+      return d.toLocaleString('pt-BR', {
+        day: '2-digit',
+        month: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+      });
+    }
+
+    let rawRows = [];
+    let rangeHours = 24;
+
+    const followersChart = new Chart(document.getElementById('followersChart'), {
+      type: 'line',
+      data: { labels: [], datasets: [] },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        layout: { padding: { top: 28, right: 12, left: 4, bottom: 4 } },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            backgroundColor: '#ffffff',
+            borderColor: '#e4e4e7',
+            borderWidth: 1,
+            titleColor: '#71717a',
+            bodyColor: '#18181b',
+            bodyFont: { family: 'DM Sans', size: 13, weight: '600' },
+            titleFont: { family: 'DM Sans', size: 12 },
+            padding: 12,
+            cornerRadius: 8,
+            callbacks: {
+              label: (ctx) => `${ctx.dataset.label}: ${fmt(ctx.parsed.y)}`,
+            },
+          },
+          datalabels: {
+            align: 'top',
+            anchor: 'end',
+            offset: 2,
+            clamp: true,
+            color: (ctx) => ctx.dataset.borderColor,
+            font: { family: 'DM Sans', size: 11, weight: '700' },
+            formatter: (value) => (value == null ? '' : compact(value)),
+          },
+        },
+        scales: {
+          x: {
+            ticks: {
+              color: '#71717a',
+              maxTicksLimit: 8,
+              font: { family: 'DM Sans', size: 11 },
+            },
+            grid: { color: '#ececee' },
+            border: { display: false },
+          },
+          y: {
+            ticks: {
+              color: '#71717a',
+              font: { family: 'DM Sans', size: 11 },
+              callback: (v) => compact(v),
+            },
+            grid: { color: '#e4e4e7' },
+            border: { display: false },
+          },
+        },
+        elements: {
+          line: { tension: 0.25, borderWidth: 2.5 },
+          point: {
+            radius: 4,
+            hoverRadius: 6,
+            borderWidth: 2,
+            backgroundColor: '#fff',
+          },
+        },
+      },
+    });
+
+    function renderCards(rows) {
+      const latest = latestByUser(rows);
+      const el = document.getElementById('cards');
+      el.innerHTML = PROFILES.map((p) => {
+        const row = latest.get(p.username);
+        const count = row ? fmt(row.followers) : '—';
+        const delta = row ? row.delta : null;
+        const deltaCls = delta == null ? '' : delta >= 0 ? 'up' : 'down';
+        const deltaTxt = delta == null ? 'sem leitura' : `${fmtDelta(delta)} na última leitura`;
+        return `
+          <article class="card ${p.chart ? 'charted' : ''}" style="--accent:${p.color}">
+            <div class="card-name">${p.chart ? `<span class="swatch"></span>` : ''}${p.display_name}</div>
+            <div class="card-count">${count}</div>
+            <div class="card-delta ${deltaCls}">${deltaTxt}</div>
+            <div class="card-user">@${p.username}</div>
+          </article>
+        `;
+      }).join('');
+    }
+
+    function renderLegend() {
+      document.getElementById('legend').innerHTML = CHART_PROFILES.map((p) => `
+        <span class="legend-item"><span class="swatch" style="background:${p.color}"></span>${p.display_name}</span>
+      `).join('');
+    }
+
+    function updateChart() {
+      const seriesList = CHART_PROFILES.map((p) => seriesFor(rawRows, p.username, rangeHours));
+      const timestamps = unionTimestamps(seriesList);
+      const labels = timestamps.map(formatLabel);
+
+      followersChart.data.labels = labels;
+      followersChart.data.datasets = CHART_PROFILES.map((p, i) => {
+        const map = new Map(seriesList[i].map((r) => [r.timestamp, r.followers]));
+        return {
+          label: p.display_name,
+          data: timestamps.map((t) => (map.has(t) ? map.get(t) : null)),
+          borderColor: p.color,
+          pointBorderColor: p.color,
+          spanGaps: true,
+        };
+      });
+
+      // Evita rótulos sobrecarregados: mostra labels só nos últimos N pontos de cada série
+      const maxLabels = timestamps.length <= 12 ? timestamps.length : 8;
+      const labelEvery = Math.max(1, Math.ceil(timestamps.length / maxLabels));
+      followersChart.options.plugins.datalabels.display = (ctx) => {
+        const idx = ctx.dataIndex;
+        const last = ctx.dataset.data.length - 1;
+        return idx === last || idx % labelEvery === 0;
+      };
+
+      followersChart.update('none');
+    }
+
+    function render(rows) {
+      rawRows = rows;
+      if (!rows.length) {
+        document.getElementById('empty').classList.add('show');
+        document.getElementById('dashboard').style.display = 'none';
+        document.getElementById('liveBadge').style.display = 'none';
+        document.getElementById('updated').textContent = 'Aguardando primeira coleta...';
+        return;
+      }
+
+      document.getElementById('empty').classList.remove('show');
+      document.getElementById('dashboard').style.display = 'block';
+      document.getElementById('liveBadge').style.display = 'inline-flex';
+
+      renderCards(rows);
+      renderLegend();
+      updateChart();
+
+      const lastTs = rows[rows.length - 1].timestamp;
+      document.getElementById('updated').innerHTML =
+        `<span class="time">Última atualização: ${new Date(lastTs).toLocaleString('pt-BR')}</span> · refresh a cada 60s · coleta horária`;
+    }
+
+    document.getElementById('rangeBtns').addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-range]');
+      if (!btn) return;
+      rangeHours = parseInt(btn.dataset.range, 10);
+      document.querySelectorAll('#rangeBtns button').forEach((b) => b.classList.remove('active'));
+      btn.classList.add('active');
+      updateChart();
+    });
+
+    async function refresh() {
+      try {
+        const res = await fetch(DATA_URL + '?t=' + Date.now());
+        if (!res.ok) throw new Error('arquivo não encontrado');
+        render(parseCsv(await res.text()));
+      } catch (err) {
+        document.getElementById('updated').textContent = 'Erro ao carregar: ' + err.message;
+      }
+    }
+
+    refresh();
+    setInterval(refresh, 60000);
+  </script>
+</body>
+</html>
