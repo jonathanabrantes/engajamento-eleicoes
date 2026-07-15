@@ -32,17 +32,28 @@ if ! flock -n 9; then
   exit 0
 fi
 
-log "INICIO: scrape página com cookie (sem API)"
+log "INICIO: scrape página com cookie (sem API) + zip HTML"
 if ! "$PYTHON" "$DIR/bot/fetch.py" >> "$LOG_FILE" 2>&1; then
   log "ERRO: fetch falhou"
   exit 1
 fi
 
-if ! git diff --quiet data/followers.csv 2>/dev/null; then
+CHANGED=0
+if ! git diff --quiet -- data/followers.csv 2>/dev/null; then
+  CHANGED=1
+fi
+if compgen -G "data/evidence/*.zip" > /dev/null; then
+  if [ -n "$(git status --porcelain -- data/evidence/*.zip 2>/dev/null || true)" ]; then
+    CHANGED=1
+  fi
+fi
+
+if [ "$CHANGED" -eq 1 ]; then
   git add data/followers.csv
-  git commit -m "chore(bot): atualiza followers.csv" >> "$LOG_FILE" 2>&1
+  git add data/evidence/*.zip 2>/dev/null || true
+  git commit -m "chore(bot): atualiza followers.csv + evidência HTML zip" >> "$LOG_FILE" 2>&1
   git push origin main >> "$LOG_FILE" 2>&1
-  log "CSV commitado e enviado"
+  log "CSV + evidência zip commitados e enviados"
 else
-  log "CSV sem alterações"
+  log "Sem alterações para commit"
 fi

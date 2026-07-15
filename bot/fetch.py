@@ -1,13 +1,18 @@
 #!/usr/bin/env python3
-"""Coleta seguidores scrapando a página do perfil com cookie (sem API)."""
+"""Coleta seguidores scrapando a página do perfil com cookie (sem API).
+
+Salva o HTML de cada perfil e gera um zip horário em data/evidence/ como evidência.
+"""
 
 from __future__ import annotations
 
+import json
 import os
 import re
 import shutil
 import sys
 import time
+import zipfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -24,7 +29,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from data_store import append_snapshot, get_last_snapshot, init_csv
 from profiles import PROFILES
 
-COOKIES_FILE = Path(__file__).parent.parent / ".cookies"
+ROOT = Path(__file__).parent.parent
+COOKIES_FILE = ROOT / ".cookies"
+EVIDENCE_DIR = ROOT / "data" / "evidence"
+STAGING_DIR = EVIDENCE_DIR / "_staging"
 
 CHROME_CANDIDATES = (
     "/usr/bin/chromium-browser",
@@ -124,13 +132,11 @@ def inject_cookies(driver: webdriver.Chrome, cookie_header: str) -> None:
 
 
 def extract_followers(driver: webdriver.Chrome) -> int | None:
-    # Contagem exata no atributo title do span de seguidores
     for el in driver.find_elements(By.CSS_SELECTOR, "span[title]"):
         title = (el.get_attribute("title") or "").strip()
         text = (el.text or "").strip()
         if not re.fullmatch(r"[\d.,\s]+", title):
             continue
-        # O texto visível costuma ser abreviado (1.9M); o title tem o número cheio
         if text and re.search(r"[kmb]$", text, re.I):
             return parse_count(title)
         parent = el.find_element(By.XPATH, "./ancestor::li[1]|./ancestor::a[1]|./..")
@@ -138,7 +144,6 @@ def extract_followers(driver: webdriver.Chrome) -> int | None:
         if "follower" in blob or "seguidor" in blob:
             return parse_count(title)
 
-    # Fallback: qualquer span[title] numérico “grande” na área de métricas
     candidates = []
     for el in driver.find_elements(By.CSS_SELECTOR, "header span[title], section span[title]"):
         title = (el.get_attribute("title") or "").strip()
@@ -149,7 +154,8 @@ def extract_followers(driver: webdriver.Chrome) -> int | None:
     return None
 
 
-def fetch_followers(driver: webdriver.Chrome, username: str) -> int:
+def fetch_profile(driver: webdriver.Chrome, username: str) -> tuple[int, str, str]:
+    """Retorna (followers, html, final_url)."""
     url = f"https://www.instagram.com/{username}/"
     driver.get(url)
     if "/accounts/login" in driver.current_url:
@@ -165,16 +171,53 @@ def fetch_followers(driver: webdriver.Chrome, username: str) -> int:
         pass
 
     count = extract_followers(driver)
+    html = driver.page_source or ""
     if count is None or count <= 0:
         raise ValueError(f"@{username}: não achou contagem exata na página")
-    return count
+    return count, html, driver.current_url
+
+
+def stamp_for_filename(ts: str) -> str:
+    dt = datetime.fromisoformat(ts)
+    return dt.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def prepare_staging(run_id: str) -> Path:
+    if STAGING_DIR.exists():
+        shutil.rmtree(STAGING_DIR)
+    staging = STAGING_DIR / run_id
+    staging.mkdir(parents=True, exist_ok=True)
+    return staging
+
+
+def write_evidence_html(staging: Path, username: str, html: str) -> Path:
+    path = staging / f"{username}.html"
+    path.write_text(html, encoding="utf-8")
+    return path
+
+
+def build_evidence_zip(staging: Path, run_id: str, meta: dict) -> Path:
+    EVIDENCE_DIR.mkdir(parents=True, exist_ok=True)
+    (staging / "meta.json").write_text(
+        json.dumps(meta, ensure_ascii=False, indent=2) + "\n",
+        encoding="utf-8",
+    )
+    zip_path = EVIDENCE_DIR / f"{run_id}.zip"
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as zf:
+        for path in sorted(staging.iterdir()):
+            if path.is_file():
+                zf.write(path, arcname=path.name)
+    return zip_path
 
 
 def main():
     init_csv()
     cookie_header = load_cookie_header()
     ts = datetime.now(timezone.utc).isoformat()
+    run_id = stamp_for_filename(ts)
+    staging = prepare_staging(run_id)
     errors: list[str] = []
+    meta_profiles: list[dict] = []
 
     driver = None
     try:
@@ -184,22 +227,48 @@ def main():
         for profile in PROFILES:
             username = profile["username"]
             try:
-                followers = fetch_followers(driver, username)
+                followers, html, final_url = fetch_profile(driver, username)
+                write_evidence_html(staging, username, html)
             except Exception as e:
                 msg = str(e)
                 errors.append(msg)
                 print(f"ERRO {msg}", file=sys.stderr)
+                try:
+                    html = driver.page_source or ""
+                    if html:
+                        write_evidence_html(staging, f"{username}.error", html)
+                except Exception:
+                    pass
+                meta_profiles.append(
+                    {
+                        "username": username,
+                        "display_name": profile["display_name"],
+                        "ok": False,
+                        "error": msg,
+                    }
+                )
                 continue
 
             last = get_last_snapshot(username)
             delta = followers - last["followers"] if last else 0
-            # Ignora baseline suja de aproximações (ex.: 2_000_000)
             if last and last["followers"] > 0:
                 ratio = abs(delta) / last["followers"]
                 if ratio > 0.15 and last["followers"] % 100_000 == 0:
                     delta = 0
 
             append_snapshot(username, followers, delta, ts=ts)
+            meta_profiles.append(
+                {
+                    "username": username,
+                    "display_name": profile["display_name"],
+                    "ok": True,
+                    "followers": followers,
+                    "delta": delta,
+                    "url": final_url,
+                    "html_file": f"{username}.html",
+                    "html_bytes": len(html.encode("utf-8")),
+                }
+            )
             sign = "+" if delta >= 0 else ""
             print(
                 f"[{ts}] @{username} ({profile['display_name']}): "
@@ -209,6 +278,18 @@ def main():
     finally:
         if driver:
             driver.quit()
+
+    meta = {
+        "timestamp": ts,
+        "run_id": run_id,
+        "source": "instagram_profile_html",
+        "note": "HTML renderizado via Selenium + cookie; sem API",
+        "profiles": meta_profiles,
+    }
+    zip_path = build_evidence_zip(staging, run_id, meta)
+    print(f"Evidência: {zip_path}")
+
+    shutil.rmtree(STAGING_DIR, ignore_errors=True)
 
     if errors and len(errors) == len(PROFILES):
         sys.exit(1)

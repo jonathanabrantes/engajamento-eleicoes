@@ -6,3 +6,5 @@ logs/
 _site/
 .cookies
 secrets/
+data/evidence/_staging/
+data/evidence/**/*.html

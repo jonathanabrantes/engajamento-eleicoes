@@ -12,17 +12,20 @@ O gráfico principal (estilo linha com rótulos nos pontos) destaca **Renan, Fl�
 
 ## Como funciona
 
-1. `bot/fetch.py` consulta os perfis via Chromium/Selenium
-2. Grava em `data/followers.csv`
-3. `cron.sh` roda **hora a hora**, faz commit e `git push`
-4. GitHub Actions publica o front no **GitHub Pages**
+1. `bot/fetch.py` abre cada perfil no Chromium/Selenium (com cookie; sem API)
+2. Grava contagens em `data/followers.csv`
+3. Salva o **HTML** de cada perfil e compacta em `data/evidence/YYYYMMDDTHHMMSSZ.zip`
+4. `cron.sh` roda **hora a hora**, faz commit (CSV + zip) e `git push`
+5. GitHub Actions publica o front no **GitHub Pages**
+
+O zip contém `{username}.html` de cada perfil + `meta.json` (seguidores, delta, url).
 
 ## Setup neste PC
 
 ```bash
 ./setup.sh
-# opcional: cookies do Instagram em .cookies (header Cookie)
-./cron.sh   # primeira coleta manual
+# cookie do Instagram em .cookies (header Cookie) — obrigatório
+./cron.sh   # coleta manual
 ```
 
 Cron instalado: `5 * * * *` (minuto 5 de cada hora).
