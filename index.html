@@ -159,6 +159,8 @@
       color: var(--muted);
     }
 
+    .card-delta .up { color: var(--green); }
+    .card-delta .down { color: var(--red); }
     .card-delta.up { color: var(--green); }
     .card-delta.down { color: var(--red); }
 
@@ -317,6 +319,25 @@
           <canvas id="followersChart"></canvas>
         </div>
       </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <div>
+            <div class="panel-title">Variação percentual</div>
+            <div class="panel-desc">Alta/baixa % desde a primeira leitura de cada perfil</div>
+          </div>
+          <div class="seg" id="pctRangeBtns">
+            <button data-range="24" class="active">24h</button>
+            <button data-range="72">3d</button>
+            <button data-range="168">7d</button>
+            <button data-range="0">Tudo</button>
+          </div>
+        </div>
+        <div class="legend" id="pctLegend"></div>
+        <div class="chart-box" style="margin-top:0.85rem">
+          <canvas id="pctChart"></canvas>
+        </div>
+      </section>
     </div>
 
     <p class="footer" id="updated">Carregando dados...</p>
@@ -351,6 +372,13 @@
       return String(n);
     }
 
+    function fmtPct(n, digits) {
+      if (n == null || !Number.isFinite(n)) return '';
+      const abs = Math.abs(n);
+      const d = digits != null ? digits : (abs >= 1 ? 2 : abs >= 0.01 ? 3 : 4);
+      return (n > 0 ? '+' : '') + n.toFixed(d).replace('.', ',') + '%';
+    }
+
     function parseCsv(text) {
       const lines = text.trim().split(/\r?\n/).filter(Boolean);
       if (lines.length < 2) return [];
@@ -369,6 +397,20 @@
       const map = new Map();
       for (const row of rows) map.set(row.username, row);
       return map;
+    }
+
+    function firstFollowersByUser(rows) {
+      const map = new Map();
+      const sorted = [...rows].sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+      for (const row of sorted) {
+        if (!map.has(row.username)) map.set(row.username, row.followers);
+      }
+      return map;
+    }
+
+    function pctSinceStart(followers, baseline) {
+      if (!baseline) return null;
+      return ((followers - baseline) / baseline) * 100;
     }
 
     function seriesFor(rows, username, hours) {
@@ -396,29 +438,59 @@
       });
     }
 
+    function legendHtml(targetId) {
+      document.getElementById(targetId).innerHTML = CHART_PROFILES.map((p) => `
+        <span class="legend-item"><span class="swatch" style="background:${p.color}"></span>${p.display_name}</span>
+      `).join('');
+    }
+
+    function labelStride(count) {
+      const maxLabels = count <= 12 ? count : 8;
+      return Math.max(1, Math.ceil(count / Math.max(maxLabels, 1)));
+    }
+
     let rawRows = [];
     let rangeHours = 24;
+    let pctRangeHours = 24;
+    let baselines = new Map();
+
+    const chartCommon = {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      layout: { padding: { top: 28, right: 12, left: 4, bottom: 4 } },
+      elements: {
+        line: { tension: 0.25, borderWidth: 2.5 },
+        point: {
+          radius: 4,
+          hoverRadius: 6,
+          borderWidth: 2,
+          backgroundColor: '#fff',
+        },
+      },
+    };
+
+    const tooltipBase = {
+      backgroundColor: '#ffffff',
+      borderColor: '#e4e4e7',
+      borderWidth: 1,
+      titleColor: '#71717a',
+      bodyColor: '#18181b',
+      bodyFont: { family: 'DM Sans', size: 13, weight: '600' },
+      titleFont: { family: 'DM Sans', size: 12 },
+      padding: 12,
+      cornerRadius: 8,
+    };
 
     const followersChart = new Chart(document.getElementById('followersChart'), {
       type: 'line',
       data: { labels: [], datasets: [] },
       options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        interaction: { mode: 'index', intersect: false },
-        layout: { padding: { top: 28, right: 12, left: 4, bottom: 4 } },
+        ...chartCommon,
         plugins: {
           legend: { display: false },
           tooltip: {
-            backgroundColor: '#ffffff',
-            borderColor: '#e4e4e7',
-            borderWidth: 1,
-            titleColor: '#71717a',
-            bodyColor: '#18181b',
-            bodyFont: { family: 'DM Sans', size: 13, weight: '600' },
-            titleFont: { family: 'DM Sans', size: 12 },
-            padding: 12,
-            cornerRadius: 8,
+            ...tooltipBase,
             callbacks: {
               label: (ctx) => `${ctx.dataset.label}: ${fmt(ctx.parsed.y)}`,
             },
@@ -453,13 +525,58 @@
             border: { display: false },
           },
         },
-        elements: {
-          line: { tension: 0.25, borderWidth: 2.5 },
-          point: {
-            radius: 4,
-            hoverRadius: 6,
-            borderWidth: 2,
-            backgroundColor: '#fff',
+      },
+    });
+
+    const pctChart = new Chart(document.getElementById('pctChart'), {
+      type: 'line',
+      data: { labels: [], datasets: [] },
+      options: {
+        ...chartCommon,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            ...tooltipBase,
+            callbacks: {
+              label: (ctx) => `${ctx.dataset.label}: ${fmtPct(ctx.parsed.y)}`,
+            },
+          },
+          datalabels: {
+            align: (ctx) => (ctx.dataset.data[ctx.dataIndex] >= 0 ? 'top' : 'bottom'),
+            anchor: (ctx) => (ctx.dataset.data[ctx.dataIndex] >= 0 ? 'end' : 'start'),
+            offset: 2,
+            clamp: true,
+            color: (ctx) => {
+              const v = ctx.dataset.data[ctx.dataIndex];
+              if (v > 0) return '#16a34a';
+              if (v < 0) return '#dc2626';
+              return ctx.dataset.borderColor;
+            },
+            font: { family: 'DM Sans', size: 11, weight: '700' },
+            formatter: (value) => fmtPct(value),
+          },
+        },
+        scales: {
+          x: {
+            ticks: {
+              color: '#71717a',
+              maxTicksLimit: 8,
+              font: { family: 'DM Sans', size: 11 },
+            },
+            grid: { color: '#ececee' },
+            border: { display: false },
+          },
+          y: {
+            ticks: {
+              color: '#71717a',
+              font: { family: 'DM Sans', size: 11 },
+              callback: (v) => fmtPct(v, Math.abs(v) >= 1 ? 2 : 3),
+            },
+            grid: {
+              color: (ctx) => (ctx.tick.value === 0 ? '#a1a1aa' : '#e4e4e7'),
+              lineWidth: (ctx) => (ctx.tick.value === 0 ? 1.5 : 1),
+            },
+            border: { display: false },
           },
         },
       },
@@ -472,26 +589,23 @@
         const row = latest.get(p.username);
         const count = row ? fmt(row.followers) : '—';
         const delta = row ? row.delta : null;
+        const pct = row ? pctSinceStart(row.followers, baselines.get(p.username)) : null;
         const deltaCls = delta == null ? '' : delta >= 0 ? 'up' : 'down';
+        const pctCls = pct == null ? '' : pct >= 0 ? 'up' : 'down';
         const deltaTxt = delta == null ? 'sem leitura' : `${fmtDelta(delta)} na última leitura`;
+        const pctTxt = pct == null ? '' : ` · <span class="${pctCls}">${fmtPct(pct)}</span> desde o início`;
         return `
           <article class="card ${p.chart ? 'charted' : ''}" style="--accent:${p.color}">
             <div class="card-name">${p.chart ? `<span class="swatch"></span>` : ''}${p.display_name}</div>
             <div class="card-count">${count}</div>
-            <div class="card-delta ${deltaCls}">${deltaTxt}</div>
+            <div class="card-delta ${deltaCls}">${deltaTxt}${pctTxt}</div>
             <div class="card-user">@${p.username}</div>
           </article>
         `;
       }).join('');
     }
 
-    function renderLegend() {
-      document.getElementById('legend').innerHTML = CHART_PROFILES.map((p) => `
-        <span class="legend-item"><span class="swatch" style="background:${p.color}"></span>${p.display_name}</span>
-      `).join('');
-    }
-
-    function updateChart() {
+    function updateFollowersChart() {
       const seriesList = CHART_PROFILES.map((p) => seriesFor(rawRows, p.username, rangeHours));
       const timestamps = unionTimestamps(seriesList);
       const labels = timestamps.map(formatLabel);
@@ -508,20 +622,49 @@
         };
       });
 
-      // Evita rótulos sobrecarregados: mostra labels só nos últimos N pontos de cada série
-      const maxLabels = timestamps.length <= 12 ? timestamps.length : 8;
-      const labelEvery = Math.max(1, Math.ceil(timestamps.length / maxLabels));
+      const stride = labelStride(timestamps.length);
       followersChart.options.plugins.datalabels.display = (ctx) => {
         const idx = ctx.dataIndex;
         const last = ctx.dataset.data.length - 1;
-        return idx === last || idx % labelEvery === 0;
+        return idx === last || idx % stride === 0;
       };
 
       followersChart.update('none');
     }
 
+    function updatePctChart() {
+      const seriesList = CHART_PROFILES.map((p) => seriesFor(rawRows, p.username, pctRangeHours));
+      const timestamps = unionTimestamps(seriesList);
+      const labels = timestamps.map(formatLabel);
+
+      pctChart.data.labels = labels;
+      pctChart.data.datasets = CHART_PROFILES.map((p, i) => {
+        const baseline = baselines.get(p.username);
+        const map = new Map(
+          seriesList[i].map((r) => [r.timestamp, pctSinceStart(r.followers, baseline)])
+        );
+        return {
+          label: p.display_name,
+          data: timestamps.map((t) => (map.has(t) ? map.get(t) : null)),
+          borderColor: p.color,
+          pointBorderColor: p.color,
+          spanGaps: true,
+        };
+      });
+
+      const stride = labelStride(timestamps.length);
+      pctChart.options.plugins.datalabels.display = (ctx) => {
+        const idx = ctx.dataIndex;
+        const last = ctx.dataset.data.length - 1;
+        return idx === last || idx % stride === 0;
+      };
+
+      pctChart.update('none');
+    }
+
     function render(rows) {
       rawRows = rows;
+      baselines = firstFollowersByUser(rows);
       if (!rows.length) {
         document.getElementById('empty').classList.add('show');
         document.getElementById('dashboard').style.display = 'none';
@@ -535,22 +678,29 @@
       document.getElementById('liveBadge').style.display = 'inline-flex';
 
       renderCards(rows);
-      renderLegend();
-      updateChart();
+      legendHtml('legend');
+      legendHtml('pctLegend');
+      updateFollowersChart();
+      updatePctChart();
 
       const lastTs = rows[rows.length - 1].timestamp;
       document.getElementById('updated').innerHTML =
         `<span class="time">Última atualização: ${new Date(lastTs).toLocaleString('pt-BR')}</span> · refresh a cada 60s · coleta horária`;
     }
 
-    document.getElementById('rangeBtns').addEventListener('click', (e) => {
-      const btn = e.target.closest('button[data-range]');
-      if (!btn) return;
-      rangeHours = parseInt(btn.dataset.range, 10);
-      document.querySelectorAll('#rangeBtns button').forEach((b) => b.classList.remove('active'));
-      btn.classList.add('active');
-      updateChart();
-    });
+    function bindRange(segId, setter, updater) {
+      document.getElementById(segId).addEventListener('click', (e) => {
+        const btn = e.target.closest('button[data-range]');
+        if (!btn) return;
+        setter(parseInt(btn.dataset.range, 10));
+        document.querySelectorAll(`#${segId} button`).forEach((b) => b.classList.remove('active'));
+        btn.classList.add('active');
+        updater();
+      });
+    }
+
+    bindRange('rangeBtns', (v) => { rangeHours = v; }, updateFollowersChart);
+    bindRange('pctRangeBtns', (v) => { pctRangeHours = v; }, updatePctChart);
 
     async function refresh() {
       try {
